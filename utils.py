@@ -26,11 +26,23 @@ def batch_to_strs(batch_x):
 def flatten(arr):
   return np.reshape(arr, -1)
 
+def to_onehot(labels, num_categories):
+  rv = np.zeros((len(labels), num_categories), dtype=np.uint8)
+  for i, label in enumerate(labels):
+    rv[i][label] = 1
+  return rv
+
 ## Tensor flow helper methods
 def weight_variable(shape):
   # Xavier initialization
   initializer = tf.contrib.layers.xavier_initializer()
   return tf.Variable(initializer(shape))
+
+def weight_variable_reg(name, shape, beta):
+  initializer = tf.contrib.layers.xavier_initializer()
+  if beta:
+    return tf.get_variable(name=name, shape=shape, initializer=initializer, regularizer = tf.contrib.layers.l2_regularizer(beta))
+  return tf.get_variable(name=name, shape=shape, initializer=initializer)
 
 def bias_variable(shape):
   initial = tf.constant(0.1, shape=shape)
@@ -40,11 +52,11 @@ def bias_variable(shape):
 def conv1d(x, W):
   return tf.nn.conv1d(x, W, stride=1, padding='SAME')
 
-# Cross entropy loss
-def cross_entropy(y_pred, y_true):
+# Cross entropy loss. Higher weight_falsepos will penalize false positives more relative to false negatives
+def cross_entropy(y_pred, y_true, weight_falsepos=1):
   # Add eps to prevent errors in rare cases of 0 input to log
-  eps = 1e-11
-  return tf.reduce_mean(-y_true * tf.log(y_pred + eps) - (1-y_true) * tf.log(1-y_pred + eps))
+  eps = 1e-12
+  return tf.reduce_mean(-y_true * tf.log(y_pred + eps) - weight_falsepos * (1-y_true) * tf.log(1-y_pred + eps))
 
 # Leaky ReLU
 def lrelu(x, alpha=0.01):
@@ -60,9 +72,16 @@ def adam_opt(loss, start_lr, decay_every_num_batches=0, decay_base=0.98):
   return adam(lr).minimize(loss, global_step=global_step)
 
 def compute_accuracy(y_pred, y_true):
-  correct_prediction = tf.equal(tf.round(y_pred), y_true)
+  if y_pred.get_shape().as_list()[-1] == 1:
+    correct_prediction = tf.equal(tf.round(y_pred), y_true)
+  else: # multiclass: we are dealing with logits, not probabilities
+    correct_prediction = tf.equal(tf.argmax(y_pred, axis=-1), tf.argmax(y_true, axis=-1))
   accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
   return accuracy
+
+def coverage_placeholder(length):
+  return tf.placeholder(tf.float32, shape=None)
+  #return tf.placeholder(tf.float32, shape=[None, length])
 
 def dna_placeholder(length):
   # 4 because the data is one-hot encoded

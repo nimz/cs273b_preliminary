@@ -2,7 +2,8 @@ import tensorflow as tf
 import numpy as np
 import random
 import indel_model
-import load_dataset # See load_dataset script to observe how the training and test data is loaded
+#import load_dataset # See load_dataset script to observe how the training and test data is loaded
+import load_full_dataset_sample_one_pos
 import utils
 
 class Config(object):
@@ -13,14 +14,14 @@ class Config(object):
     batch_size = 100
     test_batch_size = 500
     lr = 1e-4
-    dropout_prob = 0.5
-    num_epochs = 1
+    dropout_prob = 0.25
+    num_epochs = 5
     print_every = 200
 
 class SimpleFCN(indel_model.IndelModel):
-    def add_placeholders(self):
-        self.x = utils.dna_placeholder(2*self.config.window+1)
-        self.y_ = tf.placeholder(tf.float32, shape=[None, 1])
+#    def add_placeholders(self):
+#        self.x = utils.dna_placeholder(2*self.config.window+1)
+#        self.y_ = tf.placeholder(tf.float32, shape=[None, 1])
 
     def add_prediction_op(self):
         # Indices 1 onwards are hidden layer widths
@@ -53,10 +54,12 @@ class SimpleFCN(indel_model.IndelModel):
 
 config = Config()
 
-loader = load_dataset.DatasetLoader(chromosome=21, windowSize=config.window,
+'''loader = load_dataset.DatasetLoader(chromosome=21, windowSize=config.window,
                                     batchSize=config.batch_size,
                                     testBatchSize=config.test_batch_size,
-                                    seed=1, test_frac=0.025, pos_frac=0.5, load_coverage=False)
+                                    seed=1, test_frac=0.025, pos_frac=0.5, load_coverage=False)'''
+
+loader = load_full_dataset_sample_one_pos.DatasetLoader(windowSize=config.window, batchSize=config.batch_size, testBatchSize=config.test_batch_size, seed=1, test_frac=0.05, load_coverage=False)
 
 fc_net = SimpleFCN(config, loader)
 

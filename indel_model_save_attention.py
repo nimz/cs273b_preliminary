@@ -1,5 +1,6 @@
 import time
 import matplotlib
+import pdb
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,51 +11,29 @@ import utils
 class IndelModel(object):
     """Base model class for neural network indel classifiers."""
 
-    def __init__(self, config, loader, include_coverage=False, include_entropy = False, include_recombination = False, multiclass=False, plotTrain=False):
+    def __init__(self, config, loader, include_coverage=False, include_entropy = False, multiclass=False):
         self.config = config
         self.loader = loader
-        self.batches_per_epoch = loader.num_trainbatches()
+        self.batches_per_epoch = 1 #loader.num_trainbatches()
         self.num_test_batches = loader.num_testbatches()
         self.predictions = None
         self.val_accuracies = None
         self.include_coverage = include_coverage
         self.include_entropy = include_entropy
-        self.include_recombination = include_recombination
         self.multiclass = multiclass
-        self.plotTrain = plotTrain
         self.build()
 
     def add_placeholders(self):
-        self.x = utils.dna_placeholder(2*self.config.window+1)
-        self.c = utils.coverage_placeholder(2*self.config.window+1)
-        self.e = utils.coverage_placeholder(2*self.config.window+1)
-        self.r = tf.placeholder(tf.float32, shape=None)
-        self.y_ = tf.placeholder(tf.float32, shape=[None, 1])
+        raise NotImplementedError("Each Model must re-implement this method.")
 
-    def get_feed_dict_values(self, batch):
-	feedDictValues = [batch[0]]
-        currBatchIdx = 1
-        featureFlags = [self.include_coverage, self.include_entropy, self.include_recombination]
-        for i in range(len(featureFlags)):
-            if featureFlags[i]:
-                feedDictValues.append(batch[currBatchIdx])
-                currBatchIdx += 1
-            else:
-                feedDictValues.append(None)
-        feedDictValues.append(batch[currBatchIdx])
-        return tuple(feedDictValues)
-    
-    # feed dict where batch contains labels
-    def create_feed_dict(self, batch, keep_prob):
-        #if labels_batch is None:
-        #    feed_dict = {self.x: inputs_batch}
-        #else:
-        #    feed_dict = {self.x: inputs_batch,
-        #                 self.y_: labels_batch}
-        #    return feed_dict
-        feedDictValues = self.get_feed_dict_values(batch)
-	return {self.x:feedDictValues[0],self.c:feedDictValues[1],self.e:feedDictValues[2],self.r:feedDictValues[3],
-                                                                                self.y_:feedDictValues[4],self.keep_prob:keep_prob}
+    # This function doesn't seem to be used anywhere?
+    def create_feed_dict(self, inputs_batch, labels_batch=None):
+        if labels_batch is None:
+            feed_dict = {self.x: inputs_batch}
+        else:
+            feed_dict = {self.x: inputs_batch,
+                         self.y_: labels_batch}
+            return feed_dict
 
     def add_prediction_op(self):
         """Adds the core transformation for this model which transforms a batch of input data into a batch of predictions."""
@@ -65,7 +44,7 @@ class IndelModel(object):
 
     def add_training_op(self, loss):
         raise NotImplementedError("Each Model must re-implement this method.")
-    
+
     def run_epoch(self, sess, epoch_num, validate=True):
         """Runs an epoch of training.
            Args:
@@ -77,7 +56,6 @@ class IndelModel(object):
         """
         total_loss = 0
         accuracies = []
-        trainaccs = []
         for i in range(self.batches_per_epoch):
             batch = self.loader.get_batch()
             if self.config.print_every and i % self.config.print_every == 0:
@@ -85,39 +63,37 @@ class IndelModel(object):
                     val_accuracy = self.eval_validation_accuracy()
                     print("step {}, validation accuracy {:.3f}".format(i, val_accuracy))
                     accuracies.append((i + epoch_num * self.batches_per_epoch, val_accuracy))
-                if self.plotTrain:
-                    train_accuracy = self.eval_accuracy_on_batch(batch)
-                    #if self.include_coverage and self.include_entropy:
-                    #    train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1], batch[2], batch[3])
-                    #elif self.include_coverage:
-                    #    train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1], batch[2])
-                    #elif self.include_entropy:
-                    #    train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1], batch[2])
-                    #else:
-                    #    train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1])
+                else:
+                    if self.include_coverage and self.include_entropy:
+                        train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1], batch[2], batch[3])
+                    elif self.include_coverage:
+                        train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1], batch[2])
+                    elif self.include_entropy:
+                        train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1], batch[2])
+                    else:
+                        train_accuracy = self.eval_accuracy_on_batch(batch[0], batch[1])
                     print("step {}, training accuracy {:.3f}".format(i, train_accuracy))
-                    trainaccs.append((i + epoch_num * self.batches_per_epoch, train_accuracy))
             
-            
-            #if self.include_coverage and self.include_entropy:
-            #    _, loss_val = sess.run([self.train_op, self.loss],
-            #                         feed_dict={self.x: batch[0], self.c: batch[1], self.e: batch[2], self.y_: batch[3], 
-            #                                    self.keep_prob: 1-self.config.dropout_prob})
-            #elif self.include_coverage:
-            #    _, loss_val = sess.run([self.train_op, self.loss],
-            #                         feed_dict={self.x: batch[0], self.c: batch[1], self.y_: batch[2], 
-            #                                    self.keep_prob: 1-self.config.dropout_prob})
-            #elif self.include_entropy:
-            #    _, loss_val = sess.run([self.train_op, self.loss],
-            #                         feed_dict={self.x: batch[0], self.e: batch[1], self.y_: batch[2], 
-            #                                    self.keep_prob: 1-self.config.dropout_prob})
-            #else:
-            #    _, loss_val = sess.run([self.train_op, self.loss],
-            #                             feed_dict={self.x: batch[0], self.y_: batch[1],
-            #                                        self.keep_prob: 1-self.config.dropout_prob})
-            _, loss_val = sess.run([self.train_op, self.loss], feed_dict = self.create_feed_dict(batch,1-self.config.dropout_prob))
+            if self.include_coverage and self.include_entropy:
+                _, loss_val = sess.run([self.train_op, self.loss],
+                                     feed_dict={self.x: batch[0], self.c: batch[1], self.e: batch[2], self.y_: batch[2], 
+                                                self.keep_prob: 1-self.config.dropout_prob})
+            elif self.include_coverage:
+                _, loss_val = sess.run([self.train_op, self.loss],
+                                     feed_dict={self.x: batch[0], self.c: batch[1], self.y_: batch[2], 
+                                                self.keep_prob: 1-self.config.dropout_prob})
+            elif self.include_entropy:
+                _, loss_val = sess.run([self.train_op, self.loss],
+                                     feed_dict={self.x: batch[0], self.e: batch[1], self.y_: batch[2], 
+                                                self.keep_prob: 1-self.config.dropout_prob})
+            else:
+                attention, _, loss_val = sess.run([self.attention, self.train_op, self.loss],
+                                         feed_dict={self.x: batch[0], self.y_: batch[1],
+                                                    self.keep_prob: 1-self.config.dropout_prob})
+		pdb.set_trace()
+		np.savetxt("a.csv", attention[0], delimiter=",")
             total_loss += loss_val
-        self.trainaccs = trainaccs
+
         return total_loss / self.batches_per_epoch, accuracies
 
     def fit(self, sess, save=True):
@@ -142,16 +118,15 @@ class IndelModel(object):
         if save: self.val_accuracies = val_accuracies
         return losses, val_accuracies
 
-    def predict(self, sess, X, C = None, E = None, R = None):
-	return self.pred.eval(feed_dict={self.x: X, self.c: C, self.e: E, self.r: R, self.keep_prob: 1.0})
-        #if self.include_coverage and self.include_entropy:
-        #    return self.pred.eval(feed_dict={self.x: X, self.c: C, self.e: E, self.keep_prob: 1.0})
-        #elif self.include_coverage:
-        #    return self.pred.eval(feed_dict={self.x: X, self.c: C, self.keep_prob: 1.0})
-        #elif self.include_entropy:
-        #    return self.pred.eval(feed_dict={self.x: X, self.e: E, self.keep_prob: 1.0})
-        #else:
-        #    return self.pred.eval(feed_dict={self.x: X, self.keep_prob: 1.0})
+    def predict(self, sess, X, C = None, E = None):
+        if self.include_coverage and self.include_entropy:
+            return self.pred.eval(feed_dict={self.x: X, self.c: C, self.e: E, self.keep_prob: 1.0})
+        elif self.include_coverage:
+            return self.pred.eval(feed_dict={self.x: X, self.c: C, self.keep_prob: 1.0})
+        elif self.include_entropy:
+            return self.pred.eval(feed_dict={self.x: X, self.e: E, self.keep_prob: 1.0})
+        else:
+            return self.pred.eval(feed_dict={self.x: X, self.keep_prob: 1.0})
 
     # Get model output for all test examples
     def predictAll(self, sess, save=False):
@@ -159,16 +134,14 @@ class IndelModel(object):
         predictions = None
         for i in range(self.num_test_batches):
             testbatch = self.loader.get_testbatch()
-	    X, C, E, R, Y = self.get_feed_dict_values(testbatch)
-            preds = self.predict(sess, X, C, E, R)
-            #if self.include_coverage and self.include_entropy:
-            #    preds = self.predict(sess, testbatch[0], testbatch[1], testbatch[2])
-            #elif self.include_coverage:
-            #    preds = self.predict(sess, testbatch[0], testbatch[1])
-            #elif self.include_entropy:
-            #    preds = self.predict(sess, testbatch[0], E = testbatch[1])
-            #else:
-            #    preds = self.predict(sess, testbatch[0])
+            if self.include_coverage and self.include_entropy:
+                preds = self.predict(sess, testbatch[0], testbatch[1], testbatch[2])
+            elif self.include_coverage:
+                preds = self.predict(sess, testbatch[0], testbatch[1])
+            elif self.include_entropy:
+                preds = self.predict(sess, testbatch[0], E = testbatch[1])
+            else:
+                preds = self.predict(sess, testbatch[0])
             if not self.multiclass:
                 preds = utils.flatten(preds)
             if predictions is None:
@@ -190,15 +163,14 @@ class IndelModel(object):
         for i in range(self.num_test_batches):
             testbatch = self.loader.get_testbatch()
             cur_size = len(testbatch[1])
-            batch_acc = curr_size * self.eval_accuracy_on_batch(testbatch)
-            #if self.include_coverage and self.include_entropy:
-            #    batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1], testbatch[2], testbatch[3])
-            #elif self.include_coverage:
-            #    batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1], testbatch[2])
-            #elif self.include_entropy:
-            #    batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1], testbatch[2])
-            #else:
-            #    batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1])
+            if self.include_coverage and self.include_entropy:
+                batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1], testbatch[2], testbatch[3])
+            elif self.include_coverage:
+                batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1], testbatch[2])
+            elif self.include_entropy:
+                batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1], testbatch[2])
+            else:
+                batch_acc = cur_size * self.eval_accuracy_on_batch(testbatch[0], testbatch[1])
             test_acc += batch_acc
             num_test_ex += cur_size
         return test_acc / num_test_ex
@@ -224,16 +196,14 @@ class IndelModel(object):
             index = 0
             for i in range(self.num_test_batches):
                 testbatch = self.loader.get_testbatch()
-	        X, C, E, R = self.get_feed_dict_values(testbatch)
-		yp = list(utils.flatten(self.predict(sess, X, C, E, R)))
-                #if self.include_coverage and self.include_entropy:
-                #    yp = list(utils.flatten(self.predict(sess, testbatch[0], testbatch[1], testbatch[2])))
-                #elif self.include_coverage:
-                #    yp = list(utils.flatten(self.predict(sess, testbatch[0], testbatch[1])))
-                #elif self.include_entropy:
-                #    yp = list(utils.flatten(self.predict(sess, testbatch[0], testbatch[1])))
-                #else:
-                #    yp = list(utils.flatten(self.predict(sess, testbatch[0])))
+                if self.include_coverage and self.include_entropy:
+                    yp = list(utils.flatten(self.predict(sess, testbatch[0], testbatch[1], testbatch[2])))
+                elif self.include_coverage:
+                    yp = list(utils.flatten(self.predict(sess, testbatch[0], testbatch[1])))
+                elif self.include_entropy:
+                    yp = list(utils.flatten(self.predict(sess, testbatch[0], testbatch[1])))
+                else:
+                    yp = list(utils.flatten(self.predict(sess, testbatch[0])))
                 if make_strs:
                   y_both = list(zip(yp, list(utils.flatten(testbatch[-1])), utils.batch_to_strs(testbatch[0])))
                 else:
@@ -305,39 +275,32 @@ class IndelModel(object):
         plt.title('Validation Accuracy over time')
         plt.xlabel('Batch number')
         plt.ylabel('Fraction of validation set classified correctly')
-        if self.plotTrain:
-          plt.plot(steps, self.trainaccs, color='darkorange', lw=1, label='Training Batch Accuracy')
         plt.savefig(plotName)
         plt.clf()
 
-    def eval_accuracy_on_batch(self, batch):
-        X, C, E, R, Y = self.get_feed_dict_values(batch)
-	return self.accuracy.eval(feed_dict = {self.x: X, self.c: C, self.e: E, self.r: R, self.y_: Y, self.keep_prob: 1.0})
-        #if self.include_coverage and self.include_entropy:
-        #    return self.accuracy.eval(feed_dict={self.x: x_batch, self.c: c_batch, self.c: e_batch, self.y_: y_batch, self.keep_prob: 1.0})
-        #elif self.include_coverage:
-        #    return self.accuracy.eval(feed_dict={self.x: x_batch, self.c: c_batch, self.y_: y_batch, self.keep_prob: 1.0})
-        #elif self.include_entropy:
-        #    return self.accuracy.eval(feed_dict={self.x: x_batch, self.e: e_batch, self.y_: y_batch, self.keep_prob: 1.0})
-        #else:
-        #    return self.accuracy.eval(feed_dict={self.x: x_batch, self.y_: y_batch, self.keep_prob: 1.0})
+    def eval_accuracy_on_batch(self, x_batch, y_batch):
+        if self.include_coverage and self.include_entropy:
+            return self.accuracy.eval(feed_dict={self.x: x_batch, self.c: c_batch, self.c: e_batch, self.y_: y_batch, self.keep_prob: 1.0})
+        elif self.include_coverage:
+            return self.accuracy.eval(feed_dict={self.x: x_batch, self.c: c_batch, self.y_: y_batch, self.keep_prob: 1.0})
+        elif self.include_entropy:
+            return self.accuracy.eval(feed_dict={self.x: x_batch, self.e: e_batch, self.y_: y_batch, self.keep_prob: 1.0})
+        else:
+            return self.accuracy.eval(feed_dict={self.x: x_batch, self.y_: y_batch, self.keep_prob: 1.0})
 
     def eval_validation_accuracy(self):
-        validation_batch = self.loader.val_set()
-        x_val, c_val, e_val, r_val, y_val = self.get_feed_dict_values(validation_batch)
-        return self.accuracy.eval(feed_dict = {self.x: x_val, self.c: c_val, self.e: e_val, self.r: r_val, self.y_: y_val, self.keep_prob: 1.0})
-        #if self.include_coverage and self.include_entropy:
-        #    x_val, c_val, e_val, y_val = self.loader.val_set()
-        #    return self.accuracy.eval(feed_dict={self.x: x_val, self.c: c_val, self.e: e_val, self.y_: y_val, self.keep_prob: 1.0})
-        #elif self.include_coverage:
-        #    x_val, c_val, y_val = self.loader.val_set()
-        #    return self.accuracy.eval(feed_dict={self.x: x_val, self.c: c_val, self.y_: y_val, self.keep_prob: 1.0})
-        #elif self.include_entropy:
-        #    x_val, e_val, y_val = self.loader.val_set()
-        #    return self.accuracy.eval(feed_dict={self.x: x_val, self.e: e_val, self.y_: y_val, self.keep_prob: 1.0})
-        #else:
-        #    x_val, y_val = self.loader.val_set()
-        #    return self.accuracy.eval(feed_dict={self.x: x_val, self.y_: y_val, self.keep_prob: 1.0})
+        if self.include_coverage and self.include_entropy:
+            x_val, c_val, e_val, y_val = self.loader.val_set()
+            return self.accuracy.eval(feed_dict={self.x: x_val, self.c: c_val, self.e: e_val, self.y_: y_val, self.keep_prob: 1.0})
+        elif self.include_coverage:
+            x_val, c_val, y_val = self.loader.val_set()
+            return self.accuracy.eval(feed_dict={self.x: x_val, self.c: c_val, self.y_: y_val, self.keep_prob: 1.0})
+        elif self.include_entropy:
+            x_val, e_val, y_val = self.loader.val_set()
+            return self.accuracy.eval(feed_dict={self.x: x_val, self.e: e_val, self.y_: y_val, self.keep_prob: 1.0})
+        else:
+            x_val, y_val = self.loader.val_set()
+            return self.accuracy.eval(feed_dict={self.x: x_val, self.y_: y_val, self.keep_prob: 1.0})
 
     def build(self):
         self.add_placeholders()
@@ -345,7 +308,8 @@ class IndelModel(object):
         self.pred = self.add_prediction_op()
         self.loss = self.add_loss_op(self.pred)
         self.train_op = self.add_training_op(self.loss)
-        self.accuracy = utils.compute_accuracy(self.pred, self.y_)
+        self.attention = self.get_attention()
+	self.accuracy = utils.compute_accuracy(self.pred, self.y_)
 
     def print_metrics(self, sess, plot_prefix, output_stats_file):
         losses, val_accuracies = self.fit(sess, save=True)
